@@ -35,15 +35,21 @@ void loop() {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     int space1 = cmd.indexOf(' ');
-    int space2 = cmd.indexOf(' ', space1 +1);
+    int space2 = cmd.indexOf(' ', space1 + 1);
+    int space3 = cmd.indexOf(' ', space2 + 1);
+    int space4 = cmd.indexOf(' ', space3 + 1);
+    int space5 = cmd.indexOf(' ', space4 + 1);
+    int space6 = cmd.indexOf(' ', space5 + 1);
 
   float theta0 = cmd.substring(0, space1).toFloat();
   float theta1 = cmd.substring(space1 + 1, space2).toFloat();
-  float curl = cmd.substring(space2).toFloat();
+  float curl = cmd.substring(space2 + 1, space3).toFloat();
+  float thumbRot = cmd.substring(space3 + 1, space4).toFloat();
+  float thumbPinch = cmd.substring(space4 + 1, space5).toFloat();
+  float theta2 = cmd.substring(space5 + 1, space6).toFloat();
+  float theta3 = cmd.substring(space6).toFloat();
 
-  Serial.println(theta0);
-  Serial.println(theta1);
-  Serial.println(curl);
+
   
   
 
@@ -53,6 +59,10 @@ void loop() {
   setServo(0, theta0);
   setServo(1, theta1);
   setServo(2, curl);
+  setServo(3, thumbRot);
+  setServo(4, thumbPinch);
+  setServo(5, theta2);
+  setServo(6, theta3);
 
   }
 }

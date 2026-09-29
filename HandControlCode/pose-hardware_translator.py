@@ -7,16 +7,14 @@ from serial.tools import list_ports
 import math
 import time
 
-filter1 = None
-filter2 = None
-filter3 = None
 
 last_send = 0
 SENDPERIOD = 0.02
+filter = None
 
 work_available = threading.Semaphore(0)
 
-def calculateA(theta):
+def pointercalculateA(theta):
     theta1 = -theta[0]
     theta2 = -theta[1]
 
@@ -44,7 +42,7 @@ def calculateA(theta):
     return A_1, A_2
 
 
-def calculateL(theta):
+def pointercalculateL(theta):
 
     gx1 = 0.7
     gx2 = 0.7
@@ -56,7 +54,7 @@ def calculateL(theta):
     G_1 = np.array([[gx1], [gy1], [gz1], [1]])
     G_2 = np.array([[gx2], [gy2], [gz2], [1]])
 
-    A_1, A_2 = calculateA(theta)
+    A_1, A_2 = pointercalculateA(theta)
 
     
 
@@ -66,44 +64,114 @@ def calculateL(theta):
     
     return L1, L2
 
+def thumbcalculateL(thumbCurl):
+    theta3 = thumbCurl[0] + math.radians(10)
+    theta4 = thumbCurl[1]
 
-def CMD(theta, curl):
-    global filter1
-    global filter2
-    global filter3
+    P3 = np.array([[0],
+                   [0.828],
+                   [0.73],
+                   [1]
+                   ])
+
+    P4 = np.array([[0],
+                   [0.862],
+                   [0.734],
+                   [1]
+                   ])
+    
+    G3 = np.array([[2.563-1.82],
+                   [3.63],
+                   [1.75+0.5],
+                   [1]
+                   ])
+    
+    G4 = np.array([[0],
+                   [2.607],
+                   [0.555],
+                   [1]
+                   ])
+    
 
 
-    L1, L2 = calculateL(theta)
+    T3 = np.array([[1,0,0,0],
+                   [0, math.cos(theta3), -math.sin(theta3), 5.54],
+                   [0, math.sin(theta3), math.cos(theta3), 0],
+                   [0,0,0,1]
+                   ])
+
+    T4 = np.array([[1,0,0,0],
+                   [0, math.cos(theta4), -math.sin(theta4), 3.305],
+                   [0, math.sin(theta4), math.cos(theta4), 0],
+                   [0,0,0,1]
+                   ])
+
+
+    A3 = T3 @ P3
+    A4 = T4 @ P4
+
+    L3 = np.linalg.norm(G3-A3)
+    L4 = np.linalg.norm(G4-A4)
+
+    return L3, L4
+
+
+def CMD(theta, curl, thumbRot, thumbPinch, thumbCurl):
+    global filter
+
+    L1, L2 = pointercalculateL(theta)
+    L3, L4 = thumbcalculateL(thumbCurl)
     L1_0 = 1.861
     L2_0 = 1.861
+    L3_0 = 3
+    L4_0 = 1.6
     dL1 = L1_0 - L1
     dL2 = L2_0 - L2
 
-    
+    dL3 = L3_0 - L3
+    dL4 = L4_0 - L4
 
-    dPhi1 = (dL1/0.40) * (180/math.pi)
-    dPhi2 = 180 - ((dL2/0.40) * (180/math.pi))
+    dPhi1 = (dL1/0.45) * (180/math.pi)
+    dPhi2 = 180 - ((dL2/0.45) * (180/math.pi))
+    dPhi3 = (dL3/0.45) * (180/math.pi)
+    dPhi4 = (dL4/0.45) * (180/math.pi)
 
-    curlCMD = (curl + (- theta[1])) * 180/math.pi
-
-    #Low pass filtering to reduce jitter
-    alpha = 0.5
-    if(filter1 is None or filter2 is None or filter3 is None):
-        filter1 = dPhi1
-        filter2 = dPhi2
-        filter3 = curlCMD
-    else:
-        filter1 = filter1 + alpha * (dPhi1 - filter1)
-        filter2 = filter2 + alpha * (dPhi2 - filter2)
-        filter3 = filter3 + alpha * (curlCMD - filter3)
-
+    pointercurl = (-curl + (- theta[1])) * 180/math.pi
 
     #print("dPhi1 = ", dPhi1)
     #print("dPhi2 = ", dPhi2)
 
-    cmd = (str) (filter1) + " " + (str) (filter2) + " " + (str) (filter3)
+    thumbRot = thumbRot * 180/math.pi
+    thumbPinch = thumbPinch * 180/math.pi
 
-    print(cmd)
+    if filter is None:
+        filter = np.array([
+                    dPhi1,
+                    dPhi2,
+                    pointercurl,
+                    thumbRot,
+                    thumbPinch,
+                    dPhi3,
+                    dPhi4,
+                ])
+    else:
+        alpha = 0.5
+        curr = np.array([
+                    dPhi1,
+                    dPhi2,
+                    pointercurl,
+                    thumbRot,
+                    thumbPinch,
+                    dPhi3,
+                    dPhi4,
+                ])
+        filter = filter + alpha * (curr - filter)
+
+    dPhi1, dPhi2, pointercurl, thumbRot, thumbPinch, dPhi3, dPhi4 = filter
+
+
+    cmd = (str) (dPhi1) + " " + (str) (dPhi2) + " " + (str) (pointercurl) + " " + (str) (thumbRot) + " " + (str) (thumbPinch) + " " + (str) (dPhi3) + " " + (str) (dPhi4)
+    print(f"L3: {dPhi3}, L4: {dPhi4}")
     
     return cmd
 
@@ -166,7 +234,11 @@ def serial_process():
 
         theta = ((float)(data[0]), (float)(data[1]))
         curl = (float)(data[2])
-        cmd = CMD(theta, curl)
+        thumbRot = (float)(data[3])
+        thumbPinch = (float)(data[4])
+        thumbCurl = ((float)(data[5]), (float)(data[6]))
+
+        cmd = CMD(theta, curl, thumbRot, thumbPinch, thumbCurl)
         
         now = time.perf_counter()
         if now - last_send >= SENDPERIOD:
